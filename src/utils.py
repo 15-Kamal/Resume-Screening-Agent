@@ -1,6 +1,10 @@
 import os
 from dotenv import load_dotenv
-from google import genai
+from google.genai.client import Client
+import os
+
+GEMINI_CLIENT = Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
 from pydocx import PyDocX
 import pypdf
 
