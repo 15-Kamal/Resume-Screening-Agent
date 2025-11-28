@@ -1,4 +1,5 @@
 from google.genai import types
+from google.genai.client import Client
 
 from src.models import JobRequirements, CandidateProfile
 from src.utils import GEMINI_CLIENT # Import the client
