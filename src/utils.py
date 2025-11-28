@@ -3,10 +3,7 @@ from dotenv import load_dotenv
 from google.genai.client import Client
 import os
 
-GEMINI_CLIENT = Client(
-    api_key=os.getenv("GOOGLE_API_KEY"),
-    model="gemini-1.5-flash",   # required default model
-)
+GEMINI_CLIENT = Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 
 from pydocx import PyDocX
