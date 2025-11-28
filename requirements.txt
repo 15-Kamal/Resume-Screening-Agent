@@ -121,6 +121,7 @@ PyDocX==0.9.10
 Pygments==2.19.2
 PyJWT==2.10.1
 pypdf==6.4.0
+PyPDF2==3.0.1
 pypdfium2==5.1.0
 PyPika==0.48.9
 pyproject_hooks==1.2.0
