@@ -4,4 +4,4 @@ python-dotenv
 crewai
 langchain
 PyPDF2
-
+pydocx
