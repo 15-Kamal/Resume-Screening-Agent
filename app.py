@@ -5,6 +5,7 @@ import pandas as pd
 from typing import List
 
 # Import all necessary modules from your src directory
+# Assuming these imports point to your correctly structured Pydantic models and functions
 from src.parsing_agent import parse_job_description, parse_candidate_profile
 from src.evaluation_agent import run_evaluation_agent
 from src.utils import extract_text_from_file
@@ -35,6 +36,12 @@ def process_resumes(
         st.error(f"Failed to parse Job Description: {job_requirements.core_responsibilities[0]}")
         return pd.DataFrame()
 
+    # --- 🚨 DIAGNOSTIC ADDITION: Display Structured JD ---
+    with st.expander("Show Structured Job Requirements (JD)"):
+        # Display the parsed JD data for verification
+        st.json(job_requirements.model_dump())
+    # --------------------------------------------------
+
     results = []
     
     # 2. Process each uploaded resume
@@ -54,6 +61,12 @@ def process_resumes(
             with st.spinner(f"Extracting profile from {uploaded_file.name}..."):
                 candidate_profile = parse_candidate_profile(raw_resume_text, uploaded_file.name)
             
+            # --- 🚨 DIAGNOSTIC ADDITION: Display Structured Candidate Profile ---
+            # Using the sidebar to keep the main view clean
+            st.sidebar.markdown(f"### {candidate_profile.candidate_name} Profile Check")
+            st.sidebar.json(candidate_profile.model_dump())
+            # ------------------------------------------------------------------
+            
             # Run the main Evaluation Agent
             with st.spinner(f"Evaluating {candidate_profile.candidate_name} against JD..."):
                 evaluation_result = run_evaluation_agent(job_requirements, candidate_profile)
@@ -70,10 +83,12 @@ def process_resumes(
             results.append(result_dict)
             
         except Exception as e:
+            # This catches file reading errors, parsing errors, or the LLM evaluation error itself
+            # The next step should be to modify evaluation_agent.py to give a better error message here
             results.append({
                 "Candidate Name": uploaded_file.name,
                 "Final Score": 0,
-                "Status": "Failed",
+                "Status": f"Failed (System Error)",
                 "Rationale": f"Critical error during processing: {e}",
                 "Gaps": "System Failure",
                 "Experience (Yrs)": 0
@@ -140,7 +155,8 @@ if st.button("🚀 Run Screening Agent", type="primary", use_container_width=Tru
                 # Display detailed results for each candidate
                 st.subheader("Detailed Evaluation Rationale")
                 for index, row in final_df.iterrows():
-                    color = "green" if row['Final Score'] > 75 else "red"
+                    # Status is checked for the red/green dot color
+                    color = "green" if row['Final Score'] > 75 and "Rejected" not in row['Status'] else "red"
                     
                     with st.expander(f"**{row['Candidate Name']}** | Score: **{row['Final Score']}** | Status: **:{color}[{row['Status']}]**"):
                         st.markdown(f"**Recruiter Rationale:**\n\n{row['Rationale']}")
@@ -148,11 +164,11 @@ if st.button("🚀 Run Screening Agent", type="primary", use_container_width=Tru
                         st.markdown(f"**Quantitative Gaps Identified:**")
                         st.code(row['Gaps'])
                         
-                        # Optionally show the structured data (for debugging/transparency)
+                        # The original code to re-parse the profile to show the structured model output 
+                        # This section is generally okay, but now we have the data in the sidebar too.
                         if st.checkbox(f"Show Raw Profile Data for {row['Candidate Name']}", key=f"raw_data_{index}"):
-                            # Re-parse the profile to show the structured model output
-                            # (In a real app, you'd cache the full profile object, but this is simple)
                             try:
+                                # This is necessary because of Streamlit's file handling: re-access the file content
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_files[index].name)[1]) as tmp:
                                     tmp.write(uploaded_files[index].getvalue())
                                     temp_file_path = tmp.name
@@ -161,3 +177,6 @@ if st.button("🚀 Run Screening Agent", type="primary", use_container_width=Tru
                                 st.json(candidate_profile.model_dump())
                             except Exception:
                                 st.warning("Could not display raw profile data.")
+                            finally:
+                                if os.path.exists(temp_file_path):
+                                    os.unlink(temp_file_path)
