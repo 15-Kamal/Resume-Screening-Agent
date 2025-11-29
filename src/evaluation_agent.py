@@ -68,6 +68,7 @@ def run_evaluation_agent(
         
         return EvaluationResult.model_validate_json(response.text)
         
+# ... (inside run_evaluation_agent function)
     except Exception as e:
         print(f"Error in Evaluation Agent for {candidate_profile.candidate_name}: {e}")
         return EvaluationResult(
