@@ -100,11 +100,14 @@ Resume Text:
             ),
         )
 
-        profile = CandidateProfile.model_validate_json(response.text)
-        return profile
+        return CandidateProfile.model_validate_json(response.text)
 
     except Exception as e:
-        print(f"[Resume Parsing Error: {file_name}] {e}")
+        import traceback
+        print(f"\n[Resume Parsing Error: {file_name}]")
+        print("LLM ERROR:", e)
+        print(traceback.format_exc())
+
         return CandidateProfile(
             candidate_name=file_name,
             total_experience_years=0,
