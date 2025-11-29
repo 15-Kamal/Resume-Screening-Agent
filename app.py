@@ -17,8 +17,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Helper Function for Running the Core Logic ---
+# Ensure uploads folder exists at app start
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+
+# --- Helper Function for Running the Core Logic ---
 @st.cache_data(show_spinner=False)
 def process_resumes(
     jd_text: str, uploaded_files: List[st.runtime.uploaded_file_manager.UploadedFile]
@@ -26,47 +31,72 @@ def process_resumes(
     """
     Main orchestration function that runs the parsing and evaluation agents.
     Uses Streamlit's cache to avoid re-running if inputs don't change.
+
+    Important change (Step 3): each uploaded_file is saved to uploads/
+    so it can be accessed by file-based parsers and for debugging.
     """
     
     # 1. Parse the Job Description (JD)
     with st.spinner("Analyzing Job Description..."):
         job_requirements = parse_job_description(jd_text)
         
-    if "Error" in job_requirements.job_title:
+    # Defensive check (your code earlier used "Error" in job_title — preserve behaviour)
+    if hasattr(job_requirements, "job_title") and isinstance(job_requirements.job_title, str) and "Error" in job_requirements.job_title:
         st.error(f"Failed to parse Job Description: {job_requirements.core_responsibilities[0]}")
         return pd.DataFrame()
 
     # --- 🚨 DIAGNOSTIC ADDITION: Display Structured JD ---
     with st.expander("Show Structured Job Requirements (JD)"):
-        # Display the parsed JD data for verification
         st.json(job_requirements.model_dump())
     # --------------------------------------------------
 
     results = []
-    
+
     # 2. Process each uploaded resume
     for uploaded_file in uploaded_files:
-        temp_file_path = ""
+        saved_file_path = None
         try:
-            # Streamlit UploadedFile object must be written to a temporary file 
-            # for your external file readers (pypdf, pydocx) to access the path.
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp:
-                tmp.write(uploaded_file.getvalue())
-                temp_file_path = tmp.name
+            # ---------- Step 3: Save uploaded file to uploads/ ----------
+            # Use the original filename but avoid collisions by optionally appending a numeric suffix
+            orig_name = uploaded_file.name
+            base_name = os.path.splitext(orig_name)[0]
+            ext = os.path.splitext(orig_name)[1] or ".pdf"
+            save_name = orig_name
+            counter = 1
+            saved_file_path = os.path.join(UPLOAD_DIR, save_name)
+            # If file exists already, append counter
+            while os.path.exists(saved_file_path):
+                save_name = f"{base_name}_{counter}{ext}"
+                saved_file_path = os.path.join(UPLOAD_DIR, save_name)
+                counter += 1
 
-            # Extract raw text
-            raw_resume_text = extract_text_from_file(temp_file_path)
-            
+            # Write the uploaded bytes to disk (persisted)
+            with open(saved_file_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            # Optional: Informational log - visible in Streamlit
+            st.sidebar.text(f"Saved: {save_name}")
+
+            # ---------- Extract raw text using your utility (file path) ----------
+            raw_resume_text = extract_text_from_file(saved_file_path)
+
+            # If the extractor returned empty/very small text, your extract_text_from_file
+            # should already contain an OCR fallback. If not, implement OCR in src.utils.
+            if not raw_resume_text or len(raw_resume_text.strip()) < 20:
+                # small safeguard if extract_text_from_file returns nothing
+                # use a simple temp fallback to try reading again (or you can implement OCR in src.utils)
+                # For now, we'll raise an explicit error so evaluation picks it up and reports.
+                raise ValueError("Extracted resume text is empty (possible scanned PDF). Ensure OCR fallback is present in extract_text_from_file.")
+
             # Parse Candidate Profile using raw text
-            with st.spinner(f"Extracting profile from {uploaded_file.name}..."):
-                candidate_profile = parse_candidate_profile(raw_resume_text, uploaded_file.name)
-            
+            with st.spinner(f"Extracting profile from {save_name}..."):
+                candidate_profile = parse_candidate_profile(raw_resume_text, save_name)
+
             # --- 🚨 DIAGNOSTIC ADDITION: Display Structured Candidate Profile ---
-            # Using the sidebar to keep the main view clean
             st.sidebar.markdown(f"### {candidate_profile.candidate_name} Profile Check")
             st.sidebar.json(candidate_profile.model_dump())
             # ------------------------------------------------------------------
-            
+
             # Run the main Evaluation Agent
             with st.spinner(f"Evaluating {candidate_profile.candidate_name} against JD..."):
                 evaluation_result = run_evaluation_agent(job_requirements, candidate_profile)
@@ -84,7 +114,6 @@ def process_resumes(
             
         except Exception as e:
             # This catches file reading errors, parsing errors, or the LLM evaluation error itself
-            # The next step should be to modify evaluation_agent.py to give a better error message here
             results.append({
                 "Candidate Name": uploaded_file.name,
                 "Final Score": 0,
@@ -94,9 +123,11 @@ def process_resumes(
                 "Experience (Yrs)": 0
             })
         finally:
-            # Clean up the temporary file
-            if os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
+            # NOTE: We intentionally DO NOT delete the saved_file_path so you can inspect it later.
+            # If you prefer to delete temporary saved uploads after processing, uncomment the lines below:
+            # if saved_file_path and os.path.exists(saved_file_path):
+            #     os.unlink(saved_file_path)
+            pass
 
     # Convert results list to a DataFrame and sort by score
     df = pd.DataFrame(results).sort_values(by="Final Score", ascending=False)
@@ -126,7 +157,7 @@ with col_upload:
         accept_multiple_files=True
     )
     
-    st.info("Files are processed one by one using a temporary directory.")
+    st.info("Files are saved to uploads/ and processed one by one.")
 
 # --- Execution Button ---
 
@@ -164,19 +195,25 @@ if st.button("🚀 Run Screening Agent", type="primary", use_container_width=Tru
                         st.markdown(f"**Quantitative Gaps Identified:**")
                         st.code(row['Gaps'])
                         
-                        # The original code to re-parse the profile to show the structured model output 
-                        # This section is generally okay, but now we have the data in the sidebar too.
+                        # Show raw profile data on demand (re-reads saved file from uploads/)
                         if st.checkbox(f"Show Raw Profile Data for {row['Candidate Name']}", key=f"raw_data_{index}"):
                             try:
-                                # This is necessary because of Streamlit's file handling: re-access the file content
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_files[index].name)[1]) as tmp:
-                                    tmp.write(uploaded_files[index].getvalue())
-                                    temp_file_path = tmp.name
-                                raw_resume_text = extract_text_from_file(temp_file_path)
+                                saved_path = os.path.join(UPLOAD_DIR, row['Candidate Name'])
+                                # If file was renamed due to collision, try to find the actual file in uploads/
+                                if not os.path.exists(saved_path):
+                                    # fallback: find first filename that startswith candidate name base
+                                    base = os.path.splitext(row['Candidate Name'])[0]
+                                    found = None
+                                    for fn in os.listdir(UPLOAD_DIR):
+                                        if fn.startswith(base):
+                                            found = os.path.join(UPLOAD_DIR, fn)
+                                            break
+                                    if found:
+                                        saved_path = found
+
+                                raw_resume_text = extract_text_from_file(saved_path)
                                 candidate_profile = parse_candidate_profile(raw_resume_text, row['Candidate Name'])
                                 st.json(candidate_profile.model_dump())
                             except Exception:
                                 st.warning("Could not display raw profile data.")
-                            finally:
-                                if os.path.exists(temp_file_path):
-                                    os.unlink(temp_file_path)
+
