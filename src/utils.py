@@ -9,7 +9,7 @@ load_dotenv()
 
 # --- 1. Initialize Gemini Client ---
 try:
-    GEMINI_CLIENT = Client(api_key=os.getenv("GOOGLE_API_KEY"))
+    GEMINI_CLIENT = Client(api_key=os.getenv("GEMINI_API_KEY"))
 except Exception as e:
     print(f"Error initializing Gemini Client: {e}")
     GEMINI_CLIENT = None
