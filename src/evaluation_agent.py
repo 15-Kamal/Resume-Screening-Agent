@@ -70,11 +70,16 @@ def run_evaluation_agent(
         
 # ... (inside run_evaluation_agent function)
     except Exception as e:
-        print(f"Error in Evaluation Agent for {candidate_profile.candidate_name}: {e}")
+        # 🚨 NEW: Print the detailed error to the console for debugging
+        print(f"CRITICAL ERROR in Evaluation Agent for {candidate_profile.candidate_name}: {e}")
+        
+        # 🚨 NEW: Use the actual error message in the Streamlit UI rationale
+        error_message = str(e)
+        
         return EvaluationResult(
             candidate_name=candidate_profile.candidate_name,
             final_score=0,
             status="Rejected (LLM Error)",
-            quantitative_gaps=[f"LLM Processing Error: {e}"],
-            recruiter_rationale="The AI failed to generate an evaluation. Please check the API."
+            quantitative_gaps=[f"LLM Processing Error"],
+            recruiter_rationale=f"The AI failed to complete the evaluation. Root Cause: {error_message}"
         )
